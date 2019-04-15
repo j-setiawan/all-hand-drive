@@ -1,7 +1,10 @@
 import cv2
+import json
+import paho.mqtt.client as mqtt
 from tf_pose.common import CocoPart
 from tf_pose.estimator import TfPoseEstimator
 from tf_pose.networks import get_graph_path
+from sys import argv
 
 
 VIEW_RESIZE_FACTOR = 0.5
@@ -13,6 +16,36 @@ def get_body_part(human, part):
     except KeyError:
         return None
 
+
+def on_connect(client, userdata, flags, rc):
+    print("Connected with result code ", str(rc))
+    # client.subscribe('car/move')
+
+
+def on_message(client, userdata, msg):
+    print(msg.topic + ": " + str(msg.payload))
+
+
+def on_log(client, userdata, level, buf):
+    print("log: ", buf)
+
+
+client = None
+
+if len(argv == 5):
+    host = argv[1]
+    port = argv[2]
+    username = argv[3]
+    password = argv[4]
+
+    client = mqtt.Client()
+    client.tls_set()
+    client.on_connect = on_connect
+    client.on_message = on_message
+    client.on_log = on_log
+
+    client.username_pw_set(username, password)
+    client.connect(host, int(port))
 
 cap = cv2.VideoCapture(0)
 
@@ -52,6 +85,9 @@ while True:
         cv2.putText(frame, 'R: %.2f | L: %.2f' % (r_power, l_power), (width//2 - 10, height//2), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255))
         cv2.arrowedLine(frame, (10, height), (10, height - int(r_power * (height/100))), (0, 0, 0), thickness=2)
         cv2.arrowedLine(frame, (view_width - 10, height), (view_width - 10, height - int(l_power * (height/100))), (0, 0, 0), thickness=2)
+
+        if client is not None:
+            client.publish('car/move', json.dumps({'l': l_power, 'r': r_power, 'd': 1}))
 
     cv2.imshow('Input', frame)
 

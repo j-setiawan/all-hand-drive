@@ -1,5 +1,6 @@
 Cython
 opencv-python
+paho-mqtt
 protobuf
 pycocotools
 tensorflow
