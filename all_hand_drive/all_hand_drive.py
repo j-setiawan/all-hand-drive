@@ -1,6 +1,7 @@
 import cv2
 from datetime import datetime
 import json
+from math import sin, cos
 from messaging.messaging import MqttClient
 from tf_pose.common import CocoPart
 from tf_pose.estimator import TfPoseEstimator
@@ -8,8 +9,17 @@ from tf_pose.networks import get_graph_path
 from sys import argv
 
 
+# Python's open-cv does not include CV_PI
+PI = 3.1415926535897932384626433832795
 COUNTDOWN_TIME = 3
 VIEW_RESIZE_FACTOR = 0.5
+SPEED_GAUGE_NEEDLE_LENGTH = 30
+
+# CV2 Colours are BGR
+CV_COLOUR_BLACK = (0, 0, 0)
+CV_COLOUR_WHITE = (255, 255, 255)
+CV_COLOUR_RED = (0, 0, 255)
+CV_COLOUR_GREEN = (0, 255, 0)
 
 
 def decay_power(power):
@@ -28,6 +38,16 @@ def get_body_part(human, part):
         return None
 
 
+def draw_line_angle(origin, angle, length):
+    return int(origin[0] + length * cos((angle + 90) * PI / 180.0)), int(origin[1] + length * sin((angle + 90) * PI / 180.0))
+
+
+def draw_speed_gauge(origin, frame, power):
+    cv2.circle(frame, origin, SPEED_GAUGE_NEEDLE_LENGTH + 5, CV_COLOUR_WHITE, thickness=-1)
+    cv2.line(frame, origin, draw_line_angle(origin, 10 + int(power * 3.4), SPEED_GAUGE_NEEDLE_LENGTH), CV_COLOUR_RED, thickness=2)
+    cv2.circle(frame, origin, 2, CV_COLOUR_BLACK, thickness=-1)
+
+
 class AllHandDrive:
     def wrist_to_hand_coordinates(self, part):
         return self.get_part_coordinates(part, y_offset=-20)
@@ -42,7 +62,7 @@ class AllHandDrive:
             return int(part.x * self.view_width), int(part.y * self.view_height)
 
     def draw_steering_wheel(self, frame):
-        cv2.circle(frame, self.wheel_center, self.wheel_radius, (0, 0, 0), 8)
+        cv2.circle(frame, self.wheel_center, self.wheel_radius, CV_COLOUR_BLACK, 8)
 
     def calculate_power(self, part):
         power = 100 - (self.wrist_to_hand_coordinates(part)[1] - (self.wheel_center[1] - self.wheel_radius//2))
@@ -108,10 +128,10 @@ class AllHandDrive:
                 l_wrist = get_body_part(h, CocoPart.LWrist)
                 r_wrist = get_body_part(h, CocoPart.RWrist)
 
-                hand_colour = (0, 0, 255)
+                hand_colour = CV_COLOUR_RED
 
                 if l_wrist and r_wrist:
-                    hand_colour = (0, 255, 0)
+                    hand_colour = CV_COLOUR_GREEN
 
                 if l_wrist:
                     cv2.circle(frame, self.wrist_to_hand_coordinates(l_wrist), 20, hand_colour, 3)
@@ -124,10 +144,10 @@ class AllHandDrive:
                         elapsed = int((datetime.now() - start_countdown).total_seconds())
                         count = COUNTDOWN_TIME - elapsed
 
-                        light_colour = (0, 0, 255)
+                        light_colour = CV_COLOUR_RED
 
                         if count <= 0:
-                            light_colour = (0, 255, 0)
+                            light_colour = CV_COLOUR_GREEN
                         elif count <= 1:
                             light_colour = (0, 165, 255)
 
@@ -135,7 +155,7 @@ class AllHandDrive:
 
                         cv2.circle(frame, (nose[0], nose[1] - 100), 20, light_colour, -1)
                         if count > 0:
-                            cv2.putText(frame, '%.2f' % (COUNTDOWN_TIME - (datetime.now() - start_countdown).total_seconds()), (self.wheel_center[0] - 50, self.wheel_center[1] + 15), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 0), thickness=2)
+                            cv2.putText(frame, '%.2f' % (COUNTDOWN_TIME - (datetime.now() - start_countdown).total_seconds()), (self.wheel_center[0] - 50, self.wheel_center[1] + 15), cv2.FONT_HERSHEY_SIMPLEX, 1.5, CV_COLOUR_BLACK, thickness=2)
 
                     if l_wrist and r_wrist:
                         l_coordinates = self.wrist_to_hand_coordinates(l_wrist)
@@ -174,9 +194,12 @@ class AllHandDrive:
                         self.l_power = 0
                         self.r_power = 0
 
-                    cv2.putText(frame, 'R: %.2f | L: %.2f' % (self.r_power, self.l_power), (self.width//2 - 10, self.height//2), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255))
-                    cv2.arrowedLine(frame, (10, self.height), (10, self.height - int(self.r_power * (self.height/100))), (0, 0, 0), thickness=2)
-                    cv2.arrowedLine(frame, (self.view_width - 10, self.height), (self.view_width - 10, self.height - int(self.l_power * (self.height/100))), (0, 0, 0), thickness=2)
+                    cv2.putText(frame, 'R: %.2f | L: %.2f' % (self.r_power, self.l_power), (self.width//2 - 10, self.height//2), cv2.FONT_HERSHEY_SIMPLEX, 0.75, CV_COLOUR_WHITE)
+                    draw_speed_gauge((50, self.height - 50), frame, self.r_power)
+                    draw_speed_gauge((self.view_width - 50, self.height - 50), frame, self.l_power)
+
+                    # cv2.arrowedLine(frame, (10, self.height), (10, self.height - int(self.r_power * (self.height/100))), CV_COLOUR_BLACK, thickness=2)
+                    # cv2.arrowedLine(frame, (self.view_width - 10, self.height), (self.view_width - 10, self.height - int(self.l_power * (self.height/100))), CV_COLOUR_BLACK, thickness=2)
 
                     self.drive()
             else:
